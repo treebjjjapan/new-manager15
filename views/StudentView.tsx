@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Student, Belt, User, UserRole } from '../types.ts';
-import { Plus, Search, Camera, Edit2, Trash2, ChevronRight, UserPlus, Users, X, Check, Instagram, RefreshCw } from 'lucide-react';
+import { Plus, Search, Camera, Edit2, Trash2, ChevronRight, UserPlus, Users, X, Check, Instagram, RefreshCw, AlertCircle } from 'lucide-react';
 import { addLog } from '../db.ts';
 
 interface StudentViewProps {
@@ -16,6 +16,7 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
   const [editingStudent, setEditingStudent] = useState<Partial<Student> | null>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [isCameraLoading, setIsCameraLoading] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -42,46 +43,68 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
 
   const startCamera = async () => {
     setIsCameraLoading(true);
+    setCameraError(null);
     try {
+      // 1. Verificação básica de suporte
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("Seu navegador não suporta acesso à câmera ou você não está em uma conexão segura (HTTPS).");
+        throw new Error("Seu dispositivo ou navegador não permite acesso à câmera. Certifique-se de estar usando HTTPS.");
       }
 
-      // Parar qualquer stream existente antes de começar um novo
+      // 2. Limpeza de streams antigos
       stopCamera();
 
-      const constraints = { 
-        video: { 
-          facingMode: 'user',
-          width: { ideal: 640 },
-          height: { ideal: 640 }
-        },
-        audio: false 
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      // 3. Tentar primeiro com restrições ideais
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { 
+            facingMode: 'user',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false 
+        });
+      } catch (e) {
+        console.warn("Falha nas restrições ideais, tentando modo básico...");
+        // 4. Fallback para qualquer vídeo disponível
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
         
-        // No iOS/Safari, o vídeo precisa de um tempo para carregar o stream
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch(e => console.error("Erro ao dar play no vídeo:", e));
-          setIsCameraActive(true);
-          setIsCameraLoading(false);
+        // MUITO IMPORTANTE PARA iOS/SAFARI:
+        // O play() deve ser chamado explicitamente e aguardado.
+        // playsInline e muted já estão no JSX.
+        videoRef.current.onloadedmetadata = async () => {
+          try {
+            await videoRef.current?.play();
+            setIsCameraActive(true);
+            setIsCameraLoading(false);
+          } catch (playErr) {
+            console.error("Erro ao iniciar reprodução do vídeo:", playErr);
+            setCameraError("Erro ao iniciar vídeo. Tente tocar na tela.");
+            setIsCameraLoading(false);
+          }
         };
       }
     } catch (err: any) {
-      console.error("Erro ao acessar câmera:", err);
+      console.error("Erro fatal ao acessar câmera:", err);
       setIsCameraLoading(false);
-      alert(`Erro na Câmera: ${err.message || "Não foi possível acessar a câmera. Verifique se deu permissão no navegador."}`);
+      const msg = err.name === 'NotAllowedError' 
+        ? "Permissão negada. Por favor, autorize o acesso à câmera nas configurações do navegador."
+        : `Erro: ${err.message || "Câmera não encontrada ou ocupada."}`;
+      setCameraError(msg);
     }
   };
 
   const stopCamera = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach(track => {
+        track.stop();
+        console.log("Track da câmera parada:", track.label);
+      });
       streamRef.current = null;
     }
     if (videoRef.current) {
@@ -98,21 +121,40 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
       const context = canvas.getContext('2d');
       
       if (context) {
-        // Captura proporcional ao tamanho real do vídeo para evitar distorção
-        const size = Math.min(video.videoWidth, video.videoHeight);
-        canvas.width = size;
-        canvas.height = size;
+        // Obter dimensões reais do fluxo de vídeo
+        const videoWidth = video.videoWidth;
+        const videoHeight = video.videoHeight;
         
-        const startX = (video.videoWidth - size) / 2;
-        const startY = (video.videoHeight - size) / 2;
+        if (videoWidth === 0 || videoHeight === 0) {
+          alert("O vídeo ainda não carregou as dimensões. Tente novamente em um segundo.");
+          return;
+        }
 
+        // Criar um quadrado centralizado
+        const size = Math.min(videoWidth, videoHeight);
+        canvas.width = 600; // Resolução fixa para o banco de dados
+        canvas.height = 600;
+        
+        const sourceX = (videoWidth - size) / 2;
+        const sourceY = (videoHeight - size) / 2;
+
+        // Limpar o canvas antes de desenhar
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Inverter horizontalmente para efeito de espelho se for câmera frontal
+        context.save();
+        context.translate(canvas.width, 0);
+        context.scale(-1, 1);
+        
         context.drawImage(
           video, 
-          startX, startY, size, size, // Origem (crop central)
-          0, 0, size, size            // Destino
+          sourceX, sourceY, size, size, 
+          0, 0, canvas.width, canvas.height
         );
         
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        context.restore();
+        
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
         setEditingStudent(prev => ({ ...prev, photo: dataUrl }));
         stopCamera();
       }
@@ -166,7 +208,7 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-6 max-w-6xl mx-auto animate-fade-in">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h2 className="text-2xl font-extrabold text-slate-900">Alunos</h2>
@@ -174,7 +216,7 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
         </div>
         <button 
           onClick={() => { setEditingStudent({ status: 'active', belt: Belt.WHITE, stripes: 0, startDate: new Date().toISOString().split('T')[0] }); setModalOpen(true); }}
-          className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all"
+          className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95"
         >
           <UserPlus size={20} />
           Cadastrar Aluno
@@ -271,16 +313,31 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => { setModalOpen(false); stopCamera(); }}></div>
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl relative z-10 overflow-hidden animate-zoom-in">
             <div className="p-8 max-h-[90vh] overflow-y-auto custom-scrollbar">
-              <h3 className="text-2xl font-bold mb-6">{editingStudent?.id ? 'Editar Aluno' : 'Novo Cadastro'}</h3>
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-2xl font-bold">{editingStudent?.id ? 'Editar Aluno' : 'Novo Cadastro'}</h3>
+                <button onClick={() => { setModalOpen(false); stopCamera(); }} className="p-2 text-slate-400 hover:text-slate-600"><X size={24} /></button>
+              </div>
               
               <form onSubmit={handleSave} className="space-y-6">
                 <div className="flex flex-col md:flex-row gap-8">
-                  <div className="w-40 flex flex-col items-center gap-3 shrink-0">
-                    <div className="w-40 h-40 rounded-3xl bg-slate-50 border-2 border-dashed border-gray-200 flex flex-col items-center justify-center overflow-hidden relative group shadow-inner">
+                  <div className="w-full md:w-64 flex flex-col items-center gap-4 shrink-0">
+                    <div className="w-64 h-64 rounded-3xl bg-slate-50 border-2 border-dashed border-slate-200 flex flex-col items-center justify-center overflow-hidden relative group shadow-inner">
                       {isCameraLoading ? (
-                        <div className="flex flex-col items-center gap-2 text-blue-600">
-                          <RefreshCw className="animate-spin" size={32} />
-                          <span className="text-[10px] font-bold uppercase">Ligando Câmera...</span>
+                        <div className="flex flex-col items-center gap-3 text-blue-600">
+                          <RefreshCw className="animate-spin" size={40} />
+                          <span className="text-xs font-bold uppercase tracking-widest">Iniciando Lente...</span>
+                        </div>
+                      ) : cameraError ? (
+                        <div className="p-4 text-center">
+                          <AlertCircle className="text-red-500 mx-auto mb-2" size={32} />
+                          <p className="text-[10px] text-red-600 font-bold uppercase leading-tight">{cameraError}</p>
+                          <button 
+                            type="button" 
+                            onClick={startCamera}
+                            className="mt-3 text-blue-600 text-xs font-bold hover:underline"
+                          >
+                            Tentar Novamente
+                          </button>
                         </div>
                       ) : isCameraActive ? (
                         <video 
@@ -293,42 +350,43 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                       ) : editingStudent?.photo ? (
                         <img src={editingStudent.photo} className="w-full h-full object-cover" />
                       ) : (
-                        <Camera className="text-gray-300" size={48} />
+                        <Camera className="text-slate-300" size={64} />
                       )}
                       
                       {!isCameraActive && !isCameraLoading && (
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity gap-2">
+                        <div className="absolute inset-0 bg-slate-900/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity gap-3">
                           <button 
                             type="button"
                             onClick={startCamera}
-                            className="p-2 bg-white rounded-full text-blue-600 hover:bg-blue-50 transition-colors"
+                            className="p-3 bg-white rounded-2xl text-blue-600 shadow-xl hover:scale-110 transition-transform"
+                            title="Ligar Câmera"
                           >
-                            <Camera size={20} />
+                            <Camera size={24} />
                           </button>
-                          <label className="p-2 bg-white rounded-full text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">
-                            <Plus size={20} />
+                          <label className="p-3 bg-white rounded-2xl text-slate-600 shadow-xl hover:scale-110 transition-transform cursor-pointer" title="Upload de Arquivo">
+                            <Plus size={24} />
                             <input type="file" className="hidden" accept="image/*" onChange={handlePhotoUpload} />
                           </label>
                         </div>
                       )}
                     </div>
                     
-                    <div className="flex flex-col gap-2 w-full">
+                    <div className="flex flex-col gap-3 w-full">
                       {isCameraActive ? (
                         <div className="flex gap-2 w-full">
                           <button 
                             type="button" 
                             onClick={capturePhoto}
-                            className="flex-1 py-3 bg-green-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1 shadow-lg shadow-green-100"
+                            className="flex-1 py-4 bg-blue-600 text-white rounded-2xl text-sm font-black flex items-center justify-center gap-2 shadow-lg shadow-blue-100 active:scale-95"
                           >
-                            <Check size={16} /> CAPTURAR
+                            <Check size={20} /> TIRAR FOTO
                           </button>
                           <button 
                             type="button" 
                             onClick={stopCamera}
-                            className="p-3 bg-red-100 text-red-600 rounded-xl"
+                            className="p-4 bg-slate-100 text-slate-500 rounded-2xl hover:bg-red-50 hover:text-red-500 transition-colors"
                           >
-                            <X size={16} />
+                            <X size={20} />
                           </button>
                         </div>
                       ) : (
@@ -336,10 +394,10 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                           type="button"
                           onClick={startCamera}
                           disabled={isCameraLoading}
-                          className="w-full py-3 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                          className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
                         >
-                          {isCameraLoading ? <RefreshCw className="animate-spin" size={14} /> : <Camera size={14} />}
-                          TIRAR FOTO
+                          {isCameraLoading ? <RefreshCw className="animate-spin" size={16} /> : <Camera size={16} />}
+                          ABRIR CÂMERA
                         </button>
                       )}
                     </div>
@@ -354,20 +412,21 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                         required
                         value={editingStudent?.name || ''}
                         onChange={(e) => setEditingStudent(prev => ({ ...prev, name: e.target.value }))}
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Telefone/WhatsApp</label>
+                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">WhatsApp / Telefone</label>
                       <input 
                         type="text" 
                         value={editingStudent?.phone || ''}
                         onChange={(e) => setEditingStudent(prev => ({ ...prev, phone: e.target.value }))}
                         className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                        placeholder="(00) 00000-0000"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Instagram/Rede Social</label>
+                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Rede Social (@Instagram)</label>
                       <div className="relative">
                          <Instagram className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                          <input 
@@ -406,10 +465,10 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                     <select 
                       value={editingStudent?.status || 'active'}
                       onChange={(e) => setEditingStudent(prev => ({ ...prev, status: e.target.value as any }))}
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold"
                     >
-                      <option value="active">Ativo</option>
-                      <option value="inactive">Inativo</option>
+                      <option value="active">ATIVO</option>
+                      <option value="inactive">INATIVO</option>
                     </select>
                   </div>
                   <div>
@@ -417,7 +476,7 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                     <select 
                       value={editingStudent?.belt || Belt.WHITE}
                       onChange={(e) => setEditingStudent(prev => ({ ...prev, belt: e.target.value as Belt }))}
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold"
                     >
                       {Object.values(Belt).map(b => <option key={b} value={b}>{b}</option>)}
                     </select>
@@ -430,24 +489,24 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                       max="4"
                       value={editingStudent?.stripes || 0}
                       onChange={(e) => setEditingStudent(prev => ({ ...prev, stripes: parseInt(e.target.value) }))}
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold"
                     />
                   </div>
                 </div>
 
-                <div className="pt-6 flex justify-end gap-3 sticky bottom-0 bg-white pb-2">
+                <div className="pt-6 flex flex-col sm:flex-row justify-end gap-3 sticky bottom-0 bg-white pb-4">
                   <button 
                     type="button"
                     onClick={() => { setModalOpen(false); stopCamera(); }}
-                    className="px-6 py-3 text-slate-600 font-bold hover:bg-slate-50 rounded-xl transition-all"
+                    className="px-8 py-4 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-all"
                   >
-                    Cancelar
+                    CANCELAR
                   </button>
                   <button 
                     type="submit"
-                    className="px-8 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all"
+                    className="px-12 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95"
                   >
-                    Salvar Aluno
+                    SALVAR FICHA
                   </button>
                 </div>
               </form>
