@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Student, Belt, User, UserRole } from '../types.ts';
-import { Plus, Search, Camera, Edit2, Trash2, ChevronRight, UserPlus, Users, X, Check, Instagram } from 'lucide-react';
+import { Plus, Search, Camera, Edit2, Trash2, ChevronRight, UserPlus, Users, X, Check, Instagram, RefreshCw } from 'lucide-react';
 import { addLog } from '../db.ts';
 
 interface StudentViewProps {
@@ -15,6 +15,7 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
   const [isModalOpen, setModalOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Partial<Student> | null>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [isCameraLoading, setIsCameraLoading] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -23,8 +24,6 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
   const students = db.students.filter((s: Student) => 
     s.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
-
-  const belts = Object.values(Belt);
 
   const getBeltColorClass = (belt: Belt) => {
     switch (belt) {
@@ -42,19 +41,41 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
   };
 
   const startCamera = async () => {
+    setIsCameraLoading(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'user', width: 400, height: 400 },
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Seu navegador não suporta acesso à câmera ou você não está em uma conexão segura (HTTPS).");
+      }
+
+      // Parar qualquer stream existente antes de começar um novo
+      stopCamera();
+
+      const constraints = { 
+        video: { 
+          facingMode: 'user',
+          width: { ideal: 640 },
+          height: { ideal: 640 }
+        },
         audio: false 
-      });
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
-        setIsCameraActive(true);
+        
+        // No iOS/Safari, o vídeo precisa de um tempo para carregar o stream
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch(e => console.error("Erro ao dar play no vídeo:", e));
+          setIsCameraActive(true);
+          setIsCameraLoading(false);
+        };
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Erro ao acessar câmera:", err);
-      alert("Não foi possível acessar a câmera. Verifique as permissões.");
+      setIsCameraLoading(false);
+      alert(`Erro na Câmera: ${err.message || "Não foi possível acessar a câmera. Verifique se deu permissão no navegador."}`);
     }
   };
 
@@ -63,17 +84,35 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setIsCameraActive(false);
+    setIsCameraLoading(false);
   };
 
   const capturePhoto = () => {
     if (videoRef.current && canvasRef.current) {
-      const context = canvasRef.current.getContext('2d');
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d');
+      
       if (context) {
-        canvasRef.current.width = videoRef.current.videoWidth;
-        canvasRef.current.height = videoRef.current.videoHeight;
-        context.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-        const dataUrl = canvasRef.current.toDataURL('image/jpeg');
+        // Captura proporcional ao tamanho real do vídeo para evitar distorção
+        const size = Math.min(video.videoWidth, video.videoHeight);
+        canvas.width = size;
+        canvas.height = size;
+        
+        const startX = (video.videoWidth - size) / 2;
+        const startY = (video.videoHeight - size) / 2;
+
+        context.drawImage(
+          video, 
+          startX, startY, size, size, // Origem (crop central)
+          0, 0, size, size            // Destino
+        );
+        
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
         setEditingStudent(prev => ({ ...prev, photo: dataUrl }));
         stopCamera();
       }
@@ -238,10 +277,16 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                 <div className="flex flex-col md:flex-row gap-8">
                   <div className="w-40 flex flex-col items-center gap-3 shrink-0">
                     <div className="w-40 h-40 rounded-3xl bg-slate-50 border-2 border-dashed border-gray-200 flex flex-col items-center justify-center overflow-hidden relative group shadow-inner">
-                      {isCameraActive ? (
+                      {isCameraLoading ? (
+                        <div className="flex flex-col items-center gap-2 text-blue-600">
+                          <RefreshCw className="animate-spin" size={32} />
+                          <span className="text-[10px] font-bold uppercase">Ligando Câmera...</span>
+                        </div>
+                      ) : isCameraActive ? (
                         <video 
                           ref={videoRef} 
                           autoPlay 
+                          muted
                           playsInline 
                           className="w-full h-full object-cover scale-x-[-1]"
                         />
@@ -251,7 +296,7 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                         <Camera className="text-gray-300" size={48} />
                       )}
                       
-                      {!isCameraActive && (
+                      {!isCameraActive && !isCameraLoading && (
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity gap-2">
                           <button 
                             type="button"
@@ -274,25 +319,27 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                           <button 
                             type="button" 
                             onClick={capturePhoto}
-                            className="flex-1 py-2 bg-green-600 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1"
+                            className="flex-1 py-3 bg-green-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1 shadow-lg shadow-green-100"
                           >
-                            <Check size={14} /> CAPTURAR
+                            <Check size={16} /> CAPTURAR
                           </button>
                           <button 
                             type="button" 
                             onClick={stopCamera}
-                            className="p-2 bg-red-100 text-red-600 rounded-lg"
+                            className="p-3 bg-red-100 text-red-600 rounded-xl"
                           >
-                            <X size={14} />
+                            <X size={16} />
                           </button>
                         </div>
                       ) : (
                         <button 
                           type="button"
                           onClick={startCamera}
-                          className="w-full py-2 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center justify-center gap-2"
+                          disabled={isCameraLoading}
+                          className="w-full py-3 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                         >
-                          <Camera size={14} /> TIRAR FOTO
+                          {isCameraLoading ? <RefreshCw className="animate-spin" size={14} /> : <Camera size={14} />}
+                          TIRAR FOTO
                         </button>
                       )}
                     </div>
@@ -320,7 +367,7 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Rede Social (Instagram/FB)</label>
+                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Instagram/Rede Social</label>
                       <div className="relative">
                          <Instagram className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                          <input 
