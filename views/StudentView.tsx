@@ -10,12 +10,13 @@ interface StudentViewProps {
   currentUser: User;
 }
 
+type CameraMode = 'off' | 'loading' | 'active' | 'error';
+
 const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setModalOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Partial<Student> | null>(null);
-  const [isCameraActive, setIsCameraActive] = useState(false);
-  const [isCameraLoading, setIsCameraLoading] = useState(false);
+  const [cameraMode, setCameraMode] = useState<CameraMode>('off');
   const [cameraError, setCameraError] = useState<string | null>(null);
   
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -41,110 +42,94 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
     }
   };
 
-  const startCamera = async () => {
-    setIsCameraLoading(true);
-    setCameraError(null);
-    try {
-      // 1. Verificação básica de suporte
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("Seu dispositivo ou navegador não permite acesso à câmera. Certifique-se de estar usando HTTPS.");
-      }
-
-      // 2. Limpeza de streams antigos
-      stopCamera();
-
-      // 3. Tentar primeiro com restrições ideais
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { 
-            facingMode: 'user',
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-          audio: false 
-        });
-      } catch (e) {
-        console.warn("Falha nas restrições ideais, tentando modo básico...");
-        // 4. Fallback para qualquer vídeo disponível
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      }
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        streamRef.current = stream;
-        
-        // MUITO IMPORTANTE PARA iOS/SAFARI:
-        // O play() deve ser chamado explicitamente e aguardado.
-        // playsInline e muted já estão no JSX.
-        videoRef.current.onloadedmetadata = async () => {
-          try {
-            await videoRef.current?.play();
-            setIsCameraActive(true);
-            setIsCameraLoading(false);
-          } catch (playErr) {
-            console.error("Erro ao iniciar reprodução do vídeo:", playErr);
-            setCameraError("Erro ao iniciar vídeo. Tente tocar na tela.");
-            setIsCameraLoading(false);
-          }
-        };
-      }
-    } catch (err: any) {
-      console.error("Erro fatal ao acessar câmera:", err);
-      setIsCameraLoading(false);
-      const msg = err.name === 'NotAllowedError' 
-        ? "Permissão negada. Por favor, autorize o acesso à câmera nas configurações do navegador."
-        : `Erro: ${err.message || "Câmera não encontrada ou ocupada."}`;
-      setCameraError(msg);
-    }
-  };
-
   const stopCamera = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => {
-        track.stop();
-        console.log("Track da câmera parada:", track.label);
-      });
+      streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
-    setIsCameraActive(false);
-    setIsCameraLoading(false);
+    setCameraMode('off');
+  };
+
+  const startCamera = async () => {
+    setCameraMode('loading');
+    setCameraError(null);
+    
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Câmera não suportada neste navegador ou conexão não segura (HTTPS).");
+      }
+
+      // Parar qualquer stream anterior
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'user',
+          width: { ideal: 640 },
+          height: { ideal: 640 }
+        },
+        audio: false
+      });
+
+      streamRef.current = stream;
+
+      // Importante: Aguardar o próximo tick para garantir que o elemento videoRef.current foi renderizado pelo React
+      setTimeout(async () => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          try {
+            // Safari exige playsInline, muted e autoPlay para funcionar sem interação extra
+            await videoRef.current.play();
+            setCameraMode('active');
+          } catch (playErr) {
+            console.error("Erro ao dar play no vídeo:", playErr);
+            setCameraError("Erro ao iniciar o fluxo de vídeo.");
+            setCameraMode('error');
+          }
+        } else {
+          setCameraError("Falha interna: Elemento de vídeo não encontrado.");
+          setCameraMode('error');
+        }
+      }, 100);
+
+    } catch (err: any) {
+      console.error("Erro ao acessar câmera:", err);
+      setCameraMode('error');
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setCameraError("Acesso negado. Por favor, permita o uso da câmera nas configurações do navegador.");
+      } else {
+        setCameraError(err.message || "Não foi possível acessar a câmera.");
+      }
+    }
   };
 
   const capturePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
+    if (videoRef.current && canvasRef.current && cameraMode === 'active') {
       const video = videoRef.current;
       const canvas = canvasRef.current;
       const context = canvas.getContext('2d');
       
       if (context) {
-        // Obter dimensões reais do fluxo de vídeo
         const videoWidth = video.videoWidth;
         const videoHeight = video.videoHeight;
         
-        if (videoWidth === 0 || videoHeight === 0) {
-          alert("O vídeo ainda não carregou as dimensões. Tente novamente em um segundo.");
-          return;
-        }
+        if (videoWidth === 0 || videoHeight === 0) return;
 
-        // Criar um quadrado centralizado
         const size = Math.min(videoWidth, videoHeight);
-        canvas.width = 600; // Resolução fixa para o banco de dados
+        canvas.width = 600;
         canvas.height = 600;
         
         const sourceX = (videoWidth - size) / 2;
         const sourceY = (videoHeight - size) / 2;
 
-        // Limpar o canvas antes de desenhar
-        context.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // Inverter horizontalmente para efeito de espelho se for câmera frontal
         context.save();
         context.translate(canvas.width, 0);
-        context.scale(-1, 1);
+        context.scale(-1, 1); // Espelhar para ficar natural
         
         context.drawImage(
           video, 
@@ -202,6 +187,7 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
       const reader = new FileReader();
       reader.onloadend = () => {
         setEditingStudent(prev => ({ ...prev, photo: reader.result as string }));
+        stopCamera();
       };
       reader.readAsDataURL(file);
     }
@@ -322,12 +308,27 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                 <div className="flex flex-col md:flex-row gap-8">
                   <div className="w-full md:w-64 flex flex-col items-center gap-4 shrink-0">
                     <div className="w-64 h-64 rounded-3xl bg-slate-50 border-2 border-dashed border-slate-200 flex flex-col items-center justify-center overflow-hidden relative group shadow-inner">
-                      {isCameraLoading ? (
+                      
+                      {/* Câmera e Vídeo Renderizados se necessário */}
+                      {(cameraMode === 'active' || cameraMode === 'loading') && (
+                        <video 
+                          ref={videoRef} 
+                          autoPlay 
+                          muted 
+                          playsInline 
+                          className={`w-full h-full object-cover scale-x-[-1] ${cameraMode === 'active' ? 'block' : 'hidden'}`}
+                        />
+                      )}
+
+                      {/* Estados de Carregamento e Erro */}
+                      {cameraMode === 'loading' && (
                         <div className="flex flex-col items-center gap-3 text-blue-600">
                           <RefreshCw className="animate-spin" size={40} />
-                          <span className="text-xs font-bold uppercase tracking-widest">Iniciando Lente...</span>
+                          <span className="text-xs font-bold uppercase tracking-widest">Iniciando...</span>
                         </div>
-                      ) : cameraError ? (
+                      )}
+
+                      {cameraMode === 'error' && (
                         <div className="p-4 text-center">
                           <AlertCircle className="text-red-500 mx-auto mb-2" size={32} />
                           <p className="text-[10px] text-red-600 font-bold uppercase leading-tight">{cameraError}</p>
@@ -339,47 +340,43 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                             Tentar Novamente
                           </button>
                         </div>
-                      ) : isCameraActive ? (
-                        <video 
-                          ref={videoRef} 
-                          autoPlay 
-                          muted
-                          playsInline 
-                          className="w-full h-full object-cover scale-x-[-1]"
-                        />
-                      ) : editingStudent?.photo ? (
-                        <img src={editingStudent.photo} className="w-full h-full object-cover" />
-                      ) : (
-                        <Camera className="text-slate-300" size={64} />
                       )}
-                      
-                      {!isCameraActive && !isCameraLoading && (
-                        <div className="absolute inset-0 bg-slate-900/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity gap-3">
-                          <button 
-                            type="button"
-                            onClick={startCamera}
-                            className="p-3 bg-white rounded-2xl text-blue-600 shadow-xl hover:scale-110 transition-transform"
-                            title="Ligar Câmera"
-                          >
-                            <Camera size={24} />
-                          </button>
-                          <label className="p-3 bg-white rounded-2xl text-slate-600 shadow-xl hover:scale-110 transition-transform cursor-pointer" title="Upload de Arquivo">
-                            <Plus size={24} />
-                            <input type="file" className="hidden" accept="image/*" onChange={handlePhotoUpload} />
-                          </label>
-                        </div>
+
+                      {/* Foto capturada ou Placeholder */}
+                      {cameraMode === 'off' && (
+                        <>
+                          {editingStudent?.photo ? (
+                            <img src={editingStudent.photo} className="w-full h-full object-cover" />
+                          ) : (
+                            <Camera className="text-slate-300" size={64} />
+                          )}
+                          <div className="absolute inset-0 bg-slate-900/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity gap-3">
+                            <button 
+                              type="button"
+                              onClick={startCamera}
+                              className="p-3 bg-white rounded-2xl text-blue-600 shadow-xl hover:scale-110 transition-transform"
+                              title="Ligar Câmera"
+                            >
+                              <Camera size={24} />
+                            </button>
+                            <label className="p-3 bg-white rounded-2xl text-slate-600 shadow-xl hover:scale-110 transition-transform cursor-pointer" title="Upload de Arquivo">
+                              <Plus size={24} />
+                              <input type="file" className="hidden" accept="image/*" onChange={handlePhotoUpload} />
+                            </label>
+                          </div>
+                        </>
                       )}
                     </div>
                     
                     <div className="flex flex-col gap-3 w-full">
-                      {isCameraActive ? (
+                      {cameraMode === 'active' ? (
                         <div className="flex gap-2 w-full">
                           <button 
                             type="button" 
                             onClick={capturePhoto}
                             className="flex-1 py-4 bg-blue-600 text-white rounded-2xl text-sm font-black flex items-center justify-center gap-2 shadow-lg shadow-blue-100 active:scale-95"
                           >
-                            <Check size={20} /> TIRAR FOTO
+                            <Check size={20} /> CAPTURAR FOTO
                           </button>
                           <button 
                             type="button" 
@@ -393,10 +390,10 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                         <button 
                           type="button"
                           onClick={startCamera}
-                          disabled={isCameraLoading}
+                          disabled={cameraMode === 'loading'}
                           className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
                         >
-                          {isCameraLoading ? <RefreshCw className="animate-spin" size={16} /> : <Camera size={16} />}
+                          {cameraMode === 'loading' ? <RefreshCw className="animate-spin" size={16} /> : <Camera size={16} />}
                           ABRIR CÂMERA
                         </button>
                       )}
@@ -426,7 +423,7 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Rede Social (@Instagram)</label>
+                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Instagram (@usuario)</label>
                       <div className="relative">
                          <Instagram className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                          <input 
