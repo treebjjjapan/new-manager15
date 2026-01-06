@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { CurrentView } from '../types';
+import { CurrentView } from '../types.ts';
 import { Users, CreditCard, Tablet, AlertCircle, CheckCircle2, TrendingUp } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -39,7 +39,6 @@ const DashboardView: React.FC<DashboardViewProps> = ({ db, setView, updateDB }) 
         </div>
       </header>
 
-      {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, i) => (
           <div key={i} className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-5">
@@ -55,7 +54,6 @@ const DashboardView: React.FC<DashboardViewProps> = ({ db, setView, updateDB }) 
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Quick Actions */}
         <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm">
           <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
             <CheckCircle2 className="text-blue-600" />
@@ -93,7 +91,6 @@ const DashboardView: React.FC<DashboardViewProps> = ({ db, setView, updateDB }) 
           </div>
         </div>
 
-        {/* Recent Logs */}
         <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm flex flex-col">
           <h3 className="text-xl font-bold mb-6">Logs de Atividade</h3>
           <div className="space-y-4 flex-1 overflow-y-auto max-h-[300px] custom-scrollbar pr-2">

@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { User, UserRole } from '../types';
+import { User, UserRole } from '../types.ts';
 
 interface LoginViewProps {
   onLogin: (user: User) => void;
@@ -12,7 +12,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Simulate auth
     if (email === 'admin@jiujitsu.com' && password === 'admin123') {
       onLogin({ id: 'admin', name: 'Mestre Admin', email, role: UserRole.ADMIN });
     } else {

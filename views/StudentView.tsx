@@ -1,8 +1,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Student, Belt, User, UserRole } from '../types';
+import { Student, Belt, User, UserRole } from '../types.ts';
 import { Plus, Search, Camera, Edit2, Trash2, ChevronRight, UserPlus, Users, X, Check, Instagram } from 'lucide-react';
-import { addLog } from '../db';
+import { addLog } from '../db.ts';
 
 interface StudentViewProps {
   db: any;
@@ -227,7 +227,6 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
         </div>
       </div>
 
-      {/* Student Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => { setModalOpen(false); stopCamera(); }}></div>
@@ -373,7 +372,7 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                       onChange={(e) => setEditingStudent(prev => ({ ...prev, belt: e.target.value as Belt }))}
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                     >
-                      {belts.map(b => <option key={b} value={b}>{b}</option>)}
+                      {Object.values(Belt).map(b => <option key={b} value={b}>{b}</option>)}
                     </select>
                   </div>
                   <div>

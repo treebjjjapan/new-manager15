@@ -1,5 +1,5 @@
 
-import { Student, Payment, Attendance, Plan, Log, Schedule, User, UserRole } from './types';
+import { Student, Payment, Attendance, Plan, Log, Schedule, User, UserRole } from './types.ts';
 
 const STORAGE_KEY = 'OSS_JIU_JITSU_DB';
 

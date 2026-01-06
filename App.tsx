@@ -1,14 +1,14 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, UserRole, Student, Plan, Attendance, Payment, Schedule, Log, CurrentView } from './types';
-import { loadDB, saveDB, addLog } from './db';
-import LoginView from './views/LoginView';
-import DashboardView from './views/DashboardView';
-import StudentView from './views/StudentView';
-import TotemView from './views/TotemView';
-import FinanceView from './views/FinanceView';
-import ConfigView from './views/ConfigView';
-import Sidebar from './components/Sidebar';
+import { User, UserRole, Student, Plan, Attendance, Payment, Schedule, Log, CurrentView } from './types.ts';
+import { loadDB, saveDB, addLog } from './db.ts';
+import LoginView from './views/LoginView.tsx';
+import DashboardView from './views/DashboardView.tsx';
+import StudentView from './views/StudentView.tsx';
+import TotemView from './views/TotemView.tsx';
+import FinanceView from './views/FinanceView.tsx';
+import ConfigView from './views/ConfigView.tsx';
+import Sidebar from './components/Sidebar.tsx';
 import { Menu, X, LayoutDashboard, Users, CreditCard, Calendar, Settings, ShieldAlert, Tablet } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -17,7 +17,6 @@ const App: React.FC = () => {
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [db, setDb] = useState(loadDB());
 
-  // Simple session persistence check
   useEffect(() => {
     const savedUser = localStorage.getItem('OSS_LOGGED_USER');
     if (savedUser) setCurrentUser(JSON.parse(savedUser));
@@ -43,7 +42,6 @@ const App: React.FC = () => {
     return <LoginView onLogin={handleLogin} />;
   }
 
-  // Totem view takes over the entire screen and has its own layout
   if (view === 'TOTEM') {
     return <TotemView students={db.students} onExit={() => setView('DASHBOARD')} updateDB={updateDB} />;
   }
@@ -105,29 +103,21 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-gray-50">
-      {/* Sidebar for desktop */}
       <aside className="hidden md:flex w-64 flex-col bg-slate-900 text-white shadow-xl">
         <Sidebar currentView={view} setView={setView} user={currentUser} onLogout={handleLogout} />
       </aside>
-
-      {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Mobile Header */}
         <header className="md:hidden flex items-center justify-between px-4 py-3 bg-slate-900 text-white shadow-sm">
           <button onClick={() => setSidebarOpen(true)}>
             <Menu size={24} />
           </button>
           <span className="font-bold text-lg tracking-tight">OSS JIU-JITSU</span>
-          <div className="w-6"></div> {/* Spacer */}
+          <div className="w-6"></div>
         </header>
-
-        {/* Dynamic Page Content */}
         <main className="flex-1 overflow-y-auto custom-scrollbar">
           {renderContent()}
         </main>
       </div>
-
-      {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
         <div className="fixed inset-0 z-50 flex md:hidden">
           <div className="fixed inset-0 bg-black/50" onClick={() => setSidebarOpen(false)}></div>
