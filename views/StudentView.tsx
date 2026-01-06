@@ -62,7 +62,6 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
         throw new Error("Câmera não suportada neste navegador ou conexão não segura (HTTPS).");
       }
 
-      // Parar qualquer stream anterior
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop());
       }
@@ -78,12 +77,10 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
 
       streamRef.current = stream;
 
-      // Importante: Aguardar o próximo tick para garantir que o elemento videoRef.current foi renderizado pelo React
       setTimeout(async () => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           try {
-            // Safari exige playsInline, muted e autoPlay para funcionar sem interação extra
             await videoRef.current.play();
             setCameraMode('active');
           } catch (playErr) {
@@ -129,7 +126,7 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
 
         context.save();
         context.translate(canvas.width, 0);
-        context.scale(-1, 1); // Espelhar para ficar natural
+        context.scale(-1, 1);
         
         context.drawImage(
           video, 
@@ -142,6 +139,22 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
         const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
         setEditingStudent(prev => ({ ...prev, photo: dataUrl }));
         stopCamera();
+      }
+    }
+  };
+
+  const handleDelete = (id: string, name: string) => {
+    if (confirm(`Tem certeza que deseja excluir permanentemente o aluno ${name}? Esta ação removerá todo o histórico.`)) {
+      updateDB(prev => ({
+        ...prev,
+        students: prev.students.filter((s: Student) => s.id !== id),
+        attendances: prev.attendances.filter((a: any) => a.studentId !== id),
+        payments: prev.payments.filter((p: any) => p.studentId !== id)
+      }));
+      addLog(`Aluno excluído: ${name}`, currentUser.id);
+      if (editingStudent?.id === id) {
+        setModalOpen(false);
+        setEditingStudent(null);
       }
     }
   };
@@ -236,7 +249,7 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
             </thead>
             <tbody className="divide-y divide-gray-100">
               {students.map((student) => (
-                <tr key={student.id} className="hover:bg-gray-50/50 transition-colors">
+                <tr key={student.id} className="hover:bg-gray-50/50 transition-colors group">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 rounded-2xl overflow-hidden bg-slate-100 border border-gray-200 shrink-0">
@@ -273,12 +286,20 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <div className="flex justify-end gap-2">
+                    <div className="flex justify-end gap-1">
                       <button 
                         onClick={() => { setEditingStudent(student); setModalOpen(true); }}
-                        className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
+                        className="p-2.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                        title="Editar Aluno"
                       >
                         <Edit2 size={18} />
+                      </button>
+                      <button 
+                        onClick={() => handleDelete(student.id, student.name)}
+                        className="p-2.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                        title="Excluir Aluno"
+                      >
+                        <Trash2 size={18} />
                       </button>
                     </div>
                   </td>
@@ -309,7 +330,6 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                   <div className="w-full md:w-64 flex flex-col items-center gap-4 shrink-0">
                     <div className="w-64 h-64 rounded-3xl bg-slate-50 border-2 border-dashed border-slate-200 flex flex-col items-center justify-center overflow-hidden relative group shadow-inner">
                       
-                      {/* Câmera e Vídeo Renderizados se necessário */}
                       {(cameraMode === 'active' || cameraMode === 'loading') && (
                         <video 
                           ref={videoRef} 
@@ -320,7 +340,6 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                         />
                       )}
 
-                      {/* Estados de Carregamento e Erro */}
                       {cameraMode === 'loading' && (
                         <div className="flex flex-col items-center gap-3 text-blue-600">
                           <RefreshCw className="animate-spin" size={40} />
@@ -342,7 +361,6 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                         </div>
                       )}
 
-                      {/* Foto capturada ou Placeholder */}
                       {cameraMode === 'off' && (
                         <>
                           {editingStudent?.photo ? (
@@ -491,17 +509,28 @@ const StudentView: React.FC<StudentViewProps> = ({ db, updateDB, currentUser }) 
                   </div>
                 </div>
 
-                <div className="pt-6 flex flex-col sm:flex-row justify-end gap-3 sticky bottom-0 bg-white pb-4">
+                <div className="pt-6 flex flex-col sm:flex-row justify-end items-center gap-3 sticky bottom-0 bg-white pb-4">
+                  {editingStudent?.id && (
+                    <button 
+                      type="button"
+                      onClick={() => handleDelete(editingStudent.id!, editingStudent.name!)}
+                      className="w-full sm:w-auto px-6 py-4 text-red-500 font-bold hover:bg-red-50 rounded-2xl transition-all sm:mr-auto flex items-center justify-center gap-2"
+                    >
+                      <Trash2 size={20} />
+                      EXCLUIR ALUNO
+                    </button>
+                  )}
+                  
                   <button 
                     type="button"
                     onClick={() => { setModalOpen(false); stopCamera(); }}
-                    className="px-8 py-4 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                    className="w-full sm:w-auto px-8 py-4 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-all"
                   >
                     CANCELAR
                   </button>
                   <button 
                     type="submit"
-                    className="px-12 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95"
+                    className="w-full sm:w-auto px-12 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95"
                   >
                     SALVAR FICHA
                   </button>
