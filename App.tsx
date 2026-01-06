@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, UserRole, Student, Plan, Attendance, Payment, Schedule, Log } from './types';
+import { User, UserRole, Student, Plan, Attendance, Payment, Schedule, Log, CurrentView } from './types';
 import { loadDB, saveDB, addLog } from './db';
 import LoginView from './views/LoginView';
 import DashboardView from './views/DashboardView';
@@ -10,8 +10,6 @@ import FinanceView from './views/FinanceView';
 import ConfigView from './views/ConfigView';
 import Sidebar from './components/Sidebar';
 import { Menu, X, LayoutDashboard, Users, CreditCard, Calendar, Settings, ShieldAlert, Tablet } from 'lucide-react';
-
-export type CurrentView = 'DASHBOARD' | 'STUDENTS' | 'ATTENDANCE' | 'FINANCE' | 'CONFIG' | 'TOTEM';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);

@@ -1,4 +1,6 @@
 
+export type CurrentView = 'DASHBOARD' | 'STUDENTS' | 'ATTENDANCE' | 'FINANCE' | 'CONFIG' | 'TOTEM';
+
 export enum Belt {
   WHITE = 'Branca',
   GRAY = 'Cinza',

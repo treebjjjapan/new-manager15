@@ -1,7 +1,6 @@
 
 import React from 'react';
-/* Fix: UserRole is not exported from App.tsx and is not used here; CurrentView is the correct export to use. */
-import { CurrentView } from '../App';
+import { CurrentView } from '../types';
 import { Users, CreditCard, Tablet, AlertCircle, CheckCircle2, TrendingUp } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -23,7 +22,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ db, setView, updateDB }) 
   ];
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8">
+    <div className="p-6 max-w-7xl mx-auto space-y-8 animate-fade-in">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900">Dashboard</h1>

@@ -1,7 +1,6 @@
 
 import React from 'react';
-import { CurrentView } from '../App';
-import { User, UserRole } from '../types';
+import { User, UserRole, CurrentView } from '../types';
 import { 
   LayoutDashboard, 
   Users, 
