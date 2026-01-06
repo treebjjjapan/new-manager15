@@ -1,0 +1,7 @@
+{
+  "name": "OSS Jiu-Jitsu Manager",
+  "description": "Sistema completo de gestão para academias de Jiu-Jitsu com Modo Totem, financeiro em Ienes e controle de graduação.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
